@@ -6,6 +6,23 @@ import os
 import requests
 from typing import Iterator
 
+# Cached singletons — building the embedding client and vector-store handle
+# involves network setup; doing it per-query added ~1-2s latency per message.
+_cached_vector_store = None
+
+
+def _get_vector_store():
+    """Lazily build and reuse the Pinecone vector store across queries."""
+    global _cached_vector_store
+    if _cached_vector_store is None:
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2")
+        index_name = os.getenv("PINECONE_INDEX", "farm-advisory")
+        _cached_vector_store = PineconeVectorStore(
+            index_name=index_name,
+            embedding=embeddings,
+        )
+    return _cached_vector_store
+
 from pinecone import Pinecone
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_pinecone import PineconeVectorStore
@@ -19,7 +36,7 @@ def get_current_weather(location: str = "Al Ain, AE") -> str:
     if not api_key:
         return "Weather API key missing."
         
-    url = f"http://api.openweathermap.org/data/2.5/weather?q={location}&appid={api_key}&units=metric"
+    url = f"https://api.openweathermap.org/data/2.5/weather?q={location}&appid={api_key}&units=metric"
     try:
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -41,16 +58,16 @@ def get_farm_knowledge(query: str) -> str:
         return "Warning: Pinecone API key missing. RAG context unavailable."
         
     try:
-        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2")
-        index_name = os.getenv("PINECONE_INDEX", "farm-advisory")
-        
-        vector_store = PineconeVectorStore(
-            index_name=index_name,
-            embedding=embeddings
-        )
-        
+        vector_store = _get_vector_store()
         results = vector_store.similarity_search(query, k=3)
-        return "\n\n".join([doc.page_content for doc in results])
+        if not results:
+            return "No relevant documents found in the knowledge base."
+        # Include source metadata so the model's advice stays traceable.
+        parts = []
+        for i, doc in enumerate(results, 1):
+            source = doc.metadata.get("source", "unknown")
+            parts.append(f"[Doc {i} | source: {source}]\n{doc.page_content}")
+        return "\n\n".join(parts)
     except Exception as e:
         return f"Warning: Failed to retrieve from Pinecone: {e}"
 
@@ -90,6 +107,10 @@ Follow these rules:
         HumanMessage(content=query)
     ]
     
-    # Stream the response chunks as they arrive
-    for chunk in llm.stream(messages):
-        yield chunk.content
+    # Stream the response chunks as they arrive; a mid-stream provider error
+    # must degrade to a readable message instead of crashing the UI stream.
+    try:
+        for chunk in llm.stream(messages):
+            yield chunk.content
+    except Exception as e:
+        yield f"\n\n⚠️ The advisory service hit an error while generating the response: {e}"

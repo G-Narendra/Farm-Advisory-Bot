@@ -59,5 +59,14 @@ The system was tested against typical UAE farming scenarios:
 - **Scenario A (Heatwave)**: Bot recommends increased irrigation for date palms based on a 42°C reading from OpenWeatherMap.
 - **Scenario B (Pest ID)**: Bot identifies tomato leaf yellowing symptoms using the RAG database and provides MOCCAE-aligned treatment steps.
 
+## Engineering Decisions & Challenges Solved
+
+| Challenge | Decision | Why |
+|---|---|---|
+| Vector store + embedding client rebuilt on every chat message (~1–2s added latency per query) | Lazily built once as a module-level singleton and reused across queries | Network client construction is setup cost, not per-query work — caching it cut first-token latency noticeably |
+| RAG answers with no traceability | Retrieved chunks now carry `[Doc N \| source: ...]` labels into the prompt so advice stays tied to its source document | Farmers act on this advice; unverifiable recommendations are worse than none |
+| Provider errors mid-stream crashed the Streamlit response block | Streaming generator catches exceptions and yields a readable warning instead of raising into the UI | A failed API call should degrade to a message, never break the chat interface |
+| Weather API called over plain HTTP | Switched to HTTPS endpoint | The request carries an API key in the query string — never send credentials unencrypted |
+
 ---
 *Built for the UAE AI Student Projects Portfolio — Advancing Food Security through Real-Time AI.*
