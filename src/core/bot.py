@@ -3,8 +3,29 @@ Real-time Farm Advisory Bot Core Engine.
 Combines Pinecone RAG, OpenWeatherMap API, and Gemini 2.5 Flash streaming.
 """
 import os
+import re
 import requests
 from typing import Iterator
+
+
+# ── AI Safety: Prompt Injection Defense ──────────────────────────────────────
+_INJECTION_PATTERNS = [
+    re.compile(r"ignore\s+(all\s+)?previous\s+instructions?", re.IGNORECASE),
+    re.compile(r"disregard\s+(all\s+)?(prior|previous|above)\s+instructions?", re.IGNORECASE),
+    re.compile(r"you\s+are\s+now\s+", re.IGNORECASE),
+    re.compile(r"act\s+as\s+(if\s+)?(you\s+are\s+)?", re.IGNORECASE),
+    re.compile(r"system\s*prompt\s*:\s*", re.IGNORECASE),
+]
+
+
+def sanitize_input(text: str, max_length: int = 50000) -> str:
+    """Strip prompt injection patterns and enforce length limits."""
+    if not text:
+        return text
+    text = text[:max_length]
+    for pattern in _INJECTION_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
 
 # Cached singletons — building the embedding client and vector-store handle
 # involves network setup; doing it per-query added ~1-2s latency per message.
@@ -77,6 +98,8 @@ def stream_advisory_response(query: str, location: str = "Al Ain, AE") -> Iterat
     Core function for real-time streaming advice.
     Combines weather, RAG context, and the farmer's query.
     """
+    # AI Safety: sanitize user input before passing to LLM
+    query = sanitize_input(query)
     weather = get_current_weather(location)
     knowledge_context = get_farm_knowledge(query)
     
