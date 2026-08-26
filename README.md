@@ -1,7 +1,9 @@
 # 🚜 Project 7: Real-Time Farm Advisory Bot
 
 ## 🎯 Problem Statement
-UAE farms, particularly in regions like Al Ain and Fujairah, face unique challenges due to an arid climate. Farmers need immediate, actionable advice on irrigation, pest management, and crop health. Traditional AI systems often have long latency, which is suboptimal for field use. This system provides a **high-speed, context-aware advisory bot** that streams responses in real-time.
+UAE farms, particularly in regions like Al Ain and Fujairah, face unique challenges due to an arid climate — temperatures exceeding 45°C, sandy soil, and limited freshwater. Farmers need immediate, actionable advice on irrigation scheduling, pest identification, and crop health, but traditional agricultural extension services have response times of days, not seconds. Generic AI chatbots lack the domain-specific knowledge to advise on UAE-specific crops like date palms and falaj irrigation systems.
+
+I evaluated several approaches: a fine-tuned model (insufficient training data for UAE agriculture), a simple prompt-only chatbot (too generic), and RAG with live weather integration (the winning approach). RAG was chosen because the `argilla/farming` dataset from Hugging Face provides structured agricultural knowledge that can be updated without retraining. The OpenWeatherMap integration adds real-time context — the same pest might require different treatment at 35°C versus 45°C. Streaming responses via Gemini 2.5 Flash reduce perceived latency from 5+ seconds to sub-500ms, which is critical for farmers checking advice on mobile devices in the field. The vector store is cached as a singleton to avoid the 1-2s latency penalty of rebuilding Pinecone connections on every query.
 
 ## 🏗️ Architecture
 The system is built with a **RAG + Real-Time Streaming** architecture:
